@@ -1,0 +1,228 @@
+/*`default_nettype none
+module lab4_core(
+    input logic clock,
+    input logic start,
+    input logic reset,
+    input logic [9:0] SW,
+    //output logic [2:0] check_state,
+    input logic [23:0] secret_key,
+    output logic [7:0] counter_value,
+    output logic [7:0] data,
+    output logic [7:0] address
+    //output logic finish
+    //output logic [7:0] q
+    //output logic write_enable
+);
+
+logic [7:0] address_write_memory;
+logic [7:0] address_shuffle;
+logic [7:0] data_write_memory;
+logic [7:0] data_shuffle;
+logic write_enable_write_memory;
+logic write_enable_shuffle;
+logic [7:0] q;
+logic shuffle_ready;
+//logic shuffle_finish;
+
+// 控制信号选择器
+logic select_write_memory;
+logic [7:0] address_si;
+logic [7:0] data_si;
+logic [7:0] write_enable_core;
+
+assign address_si = select_write_memory ? address_write_memory : address_shuffle;
+assign data_si = select_write_memory ? data_write_memory : data_shuffle;
+assign write_enable_core = select_write_memory ? write_enable_write_memory : write_enable_shuffle;
+
+fsm_write_memory fsm_write_memory_inst(
+    .inclk(clock),
+    .start(start),
+    .counter_value(data_write_memory),
+    .address(address_write_memory),
+    .finish(shuffle_ready),
+    .write_enable(write_enable_write_memory)
+);
+
+s_memory s_memory_inst(
+    .address(address_si),
+    .clock(clock),
+    .data(data_si),
+    .wren(write_enable_core),
+    .q(q)
+);
+
+fsm_shuffle fsm_shuffle_inst(
+    .inclk(clock),
+    .reset(reset),
+    .secret_key(secret_key),
+    .start(shuffle_ready),
+    .receive_data(q),
+    .send_addr(address_shuffle),
+    .write_data(data_shuffle),
+    .wren(write_enable_shuffle)
+);
+
+
+logic [2:0] core_state;
+parameter s_idle = 3'b000;
+parameter s_initial = 3'b001;
+parameter s_shuffle = 3'b010;
+
+assign select_write_memory = core_state[0];
+
+always_ff @(posedge clock) begin
+    //select_write_memory <= 1'b0;
+    case (core_state)
+    /*
+        s_idle: begin
+            check_state <= 3'b000;
+            //select_write_memory <= 1'b0;
+            if (start) begin
+                core_state <= s_initial;
+            end else begin
+                core_state <= s_idle;
+            end
+        end*/
+        /*s_initial: begin
+            //check_state <= 3'b001;
+            if (shuffle_ready) begin
+                core_state <= s_shuffle;
+            end else if (reset) begin
+                core_state <= s_initial;
+            end else begin
+                core_state <= s_initial;
+            end
+        end
+        s_shuffle: begin
+            //check_state <= 3'b010;
+            core_state <= s_shuffle;
+			end
+        default: begin
+            core_state <= s_initial;
+        end
+    endcase
+end
+
+endmodule
+`default_nettype wire*/
+
+`default_nettype none
+module lab4_core(
+    input logic clock,
+    input logic start,
+	 input logic reset,
+    input logic [9:0] SW,
+    input logic [23:0] secret_key,
+    output logic [7:0] counter_value,
+    output logic [7:0] data,
+    output logic [2:0] check_state,
+    output logic [7:0] address
+    //output logic finish
+    //output logic [7:0] q
+    //output logic write_enable
+);
+
+logic [7:0] address_write_memory;
+logic [7:0] address_shuffle;
+logic [7:0] data_write_memory;
+logic [7:0] data_shuffle;
+logic write_enable_write_memory;
+logic write_enable_shuffle;
+logic [7:0] q;
+logic write_ready;
+logic shuffle_ready;
+logic core_shuffle_ready;
+logic shuffle_finish;
+
+// 控制信号选择器
+logic select_write_memory;
+logic [7:0] address_si;
+logic [7:0] data_si;
+logic [7:0] write_enable_core;
+
+assign address_si = select_write_memory ? address_write_memory : address_shuffle;
+assign data_si = select_write_memory ? data_write_memory : data_shuffle;
+assign write_enable_core = select_write_memory ? write_enable_write_memory : write_enable_shuffle;
+
+fsm_write_memory fsm_write_memory_inst(
+    .inclk(clock),
+    .start(write_ready),
+    .counter_value(data_write_memory),
+    .address(address_write_memory),
+    .finish(shuffle_ready),
+    .write_enable(write_enable_write_memory)
+);
+
+/*
+s_memory s_memory_inst(
+    .address(address_si),
+    .clock(clock),
+    .data(data_si),
+    .wren(write_enable_core),
+    .q(q)
+);
+*/
+
+
+fsm_shuffle fsm_shuffle_inst(
+    .inclk(clock),
+    .reset(reset),
+    .secret_key(secret_key),
+    .start(core_shuffle_ready),
+    .receive_data(q),
+    .shuffle_finish(shuffle_finish),
+    .send_addr(address_shuffle),
+    .write_data(data_shuffle),
+    .wren(write_enable_shuffle)
+);
+
+// 控制状态机
+
+logic [2:0] core_state = 3'b000;
+parameter s_idle = 3'b000;
+parameter s_initial = 3'b010;
+parameter s_shuffle = 3'b001;
+parameter s_sync_core = 3'b100;
+assign select_write_memory = core_state[1];
+assign write_ready = (core_state == s_initial);
+assign core_shuffle_ready = (core_state == s_shuffle);
+
+always_ff @(posedge clock) begin
+    //select_write_memory <= 1'b0;
+    case (core_state)
+        s_idle: begin
+            //select_write_memory <= 1'b1;
+            check_state <= 3'b000;
+            if (start) begin
+                core_state <= s_initial;
+            end else begin
+                core_state <= s_idle;
+            end
+        end
+        s_initial: begin
+            //select_write_memory <= 1'b1;
+            check_state <= 3'b010;
+            if (shuffle_ready) begin
+                core_state <= s_sync_core;
+            end else begin
+                core_state <= s_initial;
+            end
+        end
+        s_sync_core: begin
+            check_state <= 3'b100;
+            //select_write_memory <= 1'b0;
+            core_state <= s_shuffle;
+        end
+        s_shuffle: begin
+            check_state <= 3'b001;
+            //select_write_memory <= 1'b0;
+            core_state <= s_shuffle;
+			end
+        default: begin
+            core_state <= s_idle;
+        end
+    endcase
+end
+
+endmodule
+//`default_nettype wire

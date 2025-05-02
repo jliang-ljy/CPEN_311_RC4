@@ -1,0 +1,196 @@
+/*
+i = 0, j=0 
+ for k = 0 to message_length-1 { // message_length is 32 in our implementation 
+ i = i+1 
+ j = j+s[i] 
+ swap values of s[i] and s[j] 
+ f = s[ (s[i]+s[j]) ] 
+ decrypted_output[k] = f xor encrypted_input[k] // 8 bit wide XOR function 
+ } 
+*/
+
+module fsm_decode (
+    input logic inclk,
+    input logic start,
+    input logic reset,
+    input logic [9:0] switch,
+    input logic [7:0] data_rom,
+    input logic [7:0] data_smem,
+    output logic [7:0] data_out_smem,
+    output logic [7:0] data_out_bmem,
+    output logic [7:0] address_out_smem,
+    output logic [7:0] address_out_bmem,
+    output logic [7:0] address_out_rom,
+    output logic finish,
+    output logic write_enable_smem,
+    output logic write_enable_bmem,
+    output logic write_enable_rom,
+    output logic [9:0] check_state
+);
+
+//Inisitialise states
+parameter s_idle        = 10'b00000_00000;
+parameter s_inc_i       = 10'b00001_00000;
+parameter s_send_i      = 10'b00010_00000;
+parameter s_get_i       = 10'b01100_00001;
+parameter s_calc_j      = 10'b00011_00000;
+parameter s_send_j      = 10'b00100_00000;
+parameter s_get_j       = 10'b01101_00001;
+parameter s_wr_j_to_i   = 10'b00101_00001;
+parameter s_wr_i_to_j   = 10'b00110_00001;
+parameter s_calc_i_j    = 10'b01110_00001;
+parameter s_send_i_j    = 10'b00111_00000;
+parameter s_get_i_j     = 10'b01111_00001;
+parameter s_send_k      = 10'b10000_00000;
+parameter s_get_enc     = 10'b10001_00001;
+parameter s_wr_xor      = 10'b01001_00010;
+parameter s_inc_k       = 10'b01010_00000;
+parameter s_done        = 10'b01011_00100;
+
+//Declare variables
+logic [9:0] state  = s_idle;
+logic [7:0] addr_i = 8'b0;
+logic [7:0] addr_j = 8'b0;
+logic [7:0] addr_k = 8'b0; 
+logic [7:0] data_i = 8'b0;
+logic [7:0] data_j = 8'b0;
+logic [7:0] data_k = 8'b0;
+logic [7:0] data_f = 8'b0;
+
+//Using one-hot assignments for state outputs
+assign write_enable_smem = state[0];
+assign write_enable_bmem = state[1];
+assign finish            = state[2];
+
+
+always_ff @(posedge inclk) begin
+    case(state)
+        s_idle: begin
+            check_state <= s_idle;
+            if(start) begin
+                state <= s_inc_i;
+            end else begin
+                state <= s_idle;
+            end
+        end
+        s_inc_i: begin
+            check_state <= s_inc_i;
+            state <= s_send_i;
+        end
+        s_send_i: begin
+            state <= s_get_i;
+        end
+        s_get_i: begin
+            state <= s_calc_j;
+        end
+        s_calc_j: begin
+            state <= s_send_j;
+        end
+        s_send_j: begin
+            state <= s_get_j;
+        end
+        s_get_j: begin
+            state <= s_wr_j_to_i;
+        end
+        s_wr_j_to_i: begin
+            state <= s_wr_i_to_j;
+        end
+        s_wr_i_to_j: begin
+            state <= s_calc_i_j;
+        end
+        s_calc_i_j: begin
+            state <= s_send_i_j;
+        end
+        s_send_i_j: begin
+            state <= s_get_i_j;
+        end
+        s_get_i_j: begin
+            state <= s_send_k;
+        end
+        s_send_k: begin
+            state <= s_get_enc;
+        end
+        s_get_enc: begin
+            state <= s_wr_xor;
+        end
+        s_wr_xor: begin
+            state <= s_inc_k;
+        end
+        s_inc_k: begin
+            if(addr_k == 8'b00011111) begin
+                state <= s_done;
+            end else begin
+                state <= s_inc_i;
+            end
+        end
+        s_done: begin
+            state <= s_idle;
+        end
+        default: begin
+            state <= s_idle;
+        end
+    endcase
+end
+
+always_ff @(posedge inclk) begin
+    case(state)
+        s_inc_i: begin
+            addr_i <= addr_i + 1;
+        end
+        s_send_i: begin
+            address_out_smem <= addr_i;
+        end
+        s_get_i: begin
+            data_i <= data_smem;
+        end
+        s_calc_j: begin
+            addr_j <= addr_j + data_i;
+        end
+        s_send_j: begin
+            address_out_smem <= addr_j;
+        end
+        s_get_j: begin
+            data_j <= data_smem;
+        end
+        s_wr_j_to_i: begin
+            address_out_smem <= addr_i;
+            data_out_smem <= data_j;
+        end
+        s_wr_i_to_j: begin
+            address_out_smem <= addr_j;
+            data_out_smem <= data_i;
+        end
+        s_send_i_j: begin
+            address_out_smem <= addr_i + addr_j;
+        end
+        s_get_i_j: begin
+            data_f <= data_smem;
+        end
+        s_send_k: begin
+            address_out_rom <= addr_k;
+        end
+        s_get_enc: begin
+            data_k <= data_rom;
+        end
+        s_wr_xor: begin
+            data_out_bmem <= (data_f ^ data_k);
+            address_out_bmem <= addr_k;
+        end
+        s_inc_k: begin
+            if(addr_k == 8'b00011111) begin
+                addr_k <= 8'b0;
+            end else begin
+                addr_k <= addr_k + 1;
+            end
+        end
+        default: begin
+            address_out_smem <= 8'b0;
+            address_out_bmem <= 8'b0;
+            address_out_rom <= 8'b0;
+            data_out_bmem <= 8'b0;
+            data_out_smeme <= 8'b0;
+        end
+    endcase
+end
+
+endmodule

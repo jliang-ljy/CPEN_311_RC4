@@ -1,0 +1,372 @@
+/*
+j = 0 
+ for i = 0 to 255 { 
+ j = (j + s[i] + secret_key[i mod keylength] ) mod 256 //keylength is 3 in our impl. 
+ swap values of s[i] and s[j] 
+ }
+*/
+
+module fsm_shuffle (
+input logic inclk,
+input logic start,
+input logic reset,
+input logic [23:0] secret_key,
+input logic [7:0] receive_data,
+output logic [7:0] send_addr,
+output logic [7:0] write_data,
+output logic shuffle_finish,
+output logic wren //write_enable
+);
+
+//Initialise the states
+parameter s_idle = 9'b00000_0000;
+parameter s_hold = 9'b00001_0000;
+parameter s_send_i = 9'b00010_0000;
+parameter s_get_i = 9'b00011_0000;
+parameter s_calculate = 9'b01100_0100;
+parameter s_write_j = 9'b00100_0001;
+parameter s_write_i = 9'b00101_0001;
+parameter s_increment = 9'b00110_0000;
+parameter s_finish = 9'b00111_0010;
+parameter s_sync_1 = 9'b01000_0000;
+parameter s_sync_2 = 9'b01001_0000;
+parameter s_send_j = 9'b01010_0000;
+parameter s_get_j = 9'b01011_0000;
+
+//Inisitialise the wires
+//logic [7:0] addr_i_reg;
+logic [7:0] addr_j_reg;
+logic [1:0] addr_sk;
+logic [7:0] data_sk;
+logic [8:0] state;
+logic [7:0] data_i_reg;
+logic [7:0] data_j_reg;
+logic [7:0] counter_i = 8'b0;
+logic calculation;
+
+//Use one-hot encoding to represent certain operations
+assign wren           = state[0];
+assign shuffle_finish = state[1];
+assign calculation    = state[2];
+
+always @(*) begin
+    addr_sk = counter_i % 2'b11;
+
+    case(addr_sk)
+        2'b00: begin
+            data_sk <= secret_key[23:16];
+        end
+        2'b01: begin
+            data_sk <= secret_key[15:8];
+        end
+        2'b10: begin
+            data_sk <= secret_key[7:0];
+        end
+        default: begin
+            data_sk <= 8'b0;
+        end
+    endcase
+end
+
+//Calculation register
+always_ff @(posedge inclk) begin
+    if(calculate) begin
+        addr_j_reg <= counter_i + addr_j_reg + data_sk;
+    end
+end
+
+//Incrementation of the counter
+always_ff @(posedge inclk) begin
+    if (reset) begin
+        counter_i <= 8'b0;
+    end else if (state == s_increment) begin
+        counter_i <= counter_i + 8'b0000_0001;
+    end
+end
+
+always_ff @(posedge inclk or posedge reset) begin
+        case (state)
+            s_idle: begin
+                counter_i <= 8'b0;
+                if (start) begin
+                    state <= s_hold;
+                end else begin
+                    state <= s_idle;
+                end
+
+            end
+            s_hold: begin
+                if(reset) begin
+                    state <= s_idle;
+                end else begin
+                    state <= s_send_i;
+                end
+            end
+
+            s_send_i: begin
+                state <= s_get_i;
+            end
+
+            s_get_i: begin
+                state <= s_send_j;
+            end
+
+            s_calculate: begin
+                state <= s_send_j;
+            end
+
+            s_send_j: begin
+                state <= s_get_j;
+            end
+
+            s_get_j: begin
+                state <= s_write_j;
+            end
+
+            s_write_j: begin
+                state <= s_write_i;
+            end
+
+            s_write_i: begin
+                state <= s_increment;
+            end
+
+            s_increment: begin
+                if((!reset) && counter_i < 8'b1111_1111) begin
+                    state <= s_hold;
+                end else if ((!reset) && counter_i == 8'b1111_1111) begin
+                    state <= s_finish;
+                end else begin
+                    state <= s_idle;
+                end
+            end
+
+            s_finish: begin
+                state <= s_idle;
+            end
+
+            default: begin
+                state <= s_idle;
+            end
+
+        endcase
+end
+
+always_ff @(posedge inclk or posedge reset) begin
+
+    case (state)
+        s_send_i: begin
+            send_addr <= counter_i;
+        end
+        s_get_i: begin
+            data_i_reg <= receive_data;
+        end
+        s_send_j: begin
+            send_addr <= addr_j_reg;
+        end
+        s_get_j: begin
+            data_j_reg <= receive_data;
+        end
+        s_write_j: begin
+            send_addr <= counter_i;
+            write_data <= data_j_reg;
+        end
+        s_write_i: begin
+            send_addr <= addr_j_reg;
+            write_data <= data_i_reg;
+        end
+        default: begin
+            write_data <= 8'b0;
+        end
+    endcase
+end
+
+endmodule
+
+
+/*
+j = 0 
+ for i = 0 to 255 { 
+ j = (j + s[i] + secret_key[i mod keylength] ) mod 256 //keylength is 3 in our impl. 
+ swap values of s[i] and s[j] 
+ }
+*/
+/*
+module fsm_shuffle (
+input logic inclk,
+input logic start,
+input logic reset,
+input logic [23:0] secret_key,
+input logic [7:0] receive_data,
+output logic [7:0] send_addr,
+output logic [7:0] write_data,
+output logic shuffle_finish,
+output logic wren //write_enable
+);
+
+//Initialise the states
+parameter s_idle = 9'b00000_0000;
+parameter s_hold = 9'b00001_0000;
+parameter s_send_i = 9'b00010_0000;
+parameter s_get_i = 9'b00011_0000;
+parameter s_write_j = 9'b00100_0001;
+parameter s_write_i = 9'b00101_0001;
+parameter s_increment = 9'b00110_0000;
+parameter s_finish = 9'b00111_0010;
+parameter s_sync_1 = 9'b01000_0000;
+parameter s_sync_2 = 9'b01001_0000;
+parameter s_send_j = 9'b01010_0000;
+parameter s_get_j = 9'b01011_0000;
+
+//Inisitialise the wires
+logic [7:0] addr_i_reg;
+logic [7:0] addr_j_reg;
+logic [1:0] addr_sk;
+logic [7:0] data_sk;
+logic [8:0] state;
+logic [7:0] data_i_reg = 8'b0;
+logic [7:0] data_j_reg = 8'b0;
+logic [7:0] counter_i = 8'b0;
+
+//Use one-hot encoding to represent outputs
+assign wren = state[0];
+assign shuffle_finish = state[1];
+
+always @(*) begin
+    addr_sk = counter_i % 2'b11;
+
+    case(addr_sk)
+        2'b00: begin
+            data_sk <= secret_key[23:16];
+        end
+        2'b01: begin
+            data_sk <= secret_key[15:8];
+        end
+        2'b10: begin
+            data_sk <= secret_key[7:0];
+        end
+        default: begin
+            data_sk <= 8'b0;
+        end
+    endcase
+end
+
+always_ff @(posedge inclk) begin
+    if (reset) begin
+        state <= s_idle;
+    end
+
+        case (state)
+            s_idle: begin
+                counter_i <= 8'b0;
+                if (start) begin
+                    state <= s_hold;
+                end else begin
+                    state <= s_idle;
+                end
+
+            end
+            s_hold: begin
+                state <= s_send_i;
+            end
+
+            s_send_i: begin
+                state <= s_get_i;
+            end
+
+            s_get_i: begin
+                state <= s_send_j;
+            end
+
+            s_send_j: begin
+                state <= s_get_j;
+            end
+
+            s_get_j: begin
+                state <= s_write_j;
+            end
+
+            s_write_j: begin
+                state <= s_write_i;
+            end
+
+            s_write_i: begin
+                state <= s_increment;
+            end
+
+            s_increment: begin
+                if(reset) begin
+                    counter_i <= 8'b0;
+                    state <= s_finish;
+                end else if (counter_i < 8'b1111_1111) begin
+                    counter_i <= counter_i + 8'b0000_0001;
+                    state <= s_hold;
+                end else begin
+                    state <= s_finish;
+                end
+            end
+
+            s_finish: begin
+                state <= s_idle;
+            end
+
+            default: begin
+                state <= s_idle;
+            end
+
+        endcase
+end
+
+always_ff @(posedge inclk) begin
+    case (state)
+        s_idle: begin
+            addr_j_reg <= 8'b0;
+            addr_i_reg <= 8'b0;
+        end
+        s_hold: begin
+            //wren <= 0;
+            //send_addr <= counter_i;
+            if(reset) begin
+                data_j_reg <= 8'b0;
+            end else begin
+            addr_j_reg <= addr_j_reg + data_i_reg + data_sk;
+            end
+        end
+        s_send_i: begin
+            //wren <= 0;
+            send_addr <= counter_i;
+        end
+        s_get_i: begin
+            //wren <= 0;
+            data_i_reg <= receive_data;
+        end
+        s_send_j: begin
+            //wren <= 0;
+            send_addr <= addr_j_reg;
+        end
+        s_get_j: begin
+            //wren <= 0;
+            data_j_reg <= receive_data;
+        end
+        s_write_j: begin
+            //wren <= 1;
+            send_addr <= counter_i;
+            write_data <= data_j_reg;
+        end
+        s_write_i: begin
+            send_addr <= addr_j_reg;
+            write_data <= data_i_reg;
+        end
+        default: begin
+            send_addr <= 0;
+        end
+    endcase
+end
+
+endmodule
+
+
+
+
+*/
+
